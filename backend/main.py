@@ -200,6 +200,7 @@ async def ws_endpoint(websocket: WebSocket):
 
 
 async def _ticker():
+    global _clients
     while True:
         await asyncio.sleep(1 / HZ)
         step()
