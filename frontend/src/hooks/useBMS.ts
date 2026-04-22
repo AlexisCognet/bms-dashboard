@@ -155,10 +155,14 @@ export function useBMS(): BMSState {
   });
 
   useEffect(() => {
+    // `active` is set to false in the cleanup so that any async WS callbacks
+    // (onerror / onclose) that fire after React StrictMode's simulated
+    // unmount cannot start a second simulator interval.
+    let active = true;
     let usingSim = false;
 
     function startSim() {
-      if (usingSim) return;
+      if (!active || usingSim) return;
       usingSim = true;
       const sim = simRef.current!;
       timerRef.current = setInterval(() => {
@@ -178,9 +182,9 @@ export function useBMS(): BMSState {
       ws.onopen = () => clearTimeout(failTimer);
 
       ws.onmessage = (ev) => {
+        if (!active) return;
         try {
           const data = JSON.parse(ev.data);
-          // Convert plain arrays from JSON to Float32Array
           setState({
             now: data.now,
             V: new Float32Array(data.V),
@@ -209,6 +213,7 @@ export function useBMS(): BMSState {
     tryWS();
 
     return () => {
+      active = false;
       wsRef.current?.close();
       if (timerRef.current) clearInterval(timerRef.current);
     };
