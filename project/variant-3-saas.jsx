@@ -1,0 +1,255 @@
+// V3 — Soft modern SaaS. Light airy default, rounded, generous whitespace.
+
+function V3SaaS({ dark = false }) {
+  const bms = useBMS();
+  const now = bms.now();
+  const V = bms.getV(), I = bms.getI(), S = bms.getSoC(), T = bms.getT();
+  const log = bms.can().slice(-8).reverse();
+
+  const th = dark ? {
+    bg: '#0f1419', card: '#181e26', cardAlt: '#1f2631',
+    border: 'rgba(255,255,255,.06)', text: '#e8edf3', mute: '#8c97a7', soft: '#5e6a7c',
+    brand: '#7c5cff', brandSoft: 'rgba(124,92,255,.15)',
+    v: '#5aa5ff', vSoft: 'rgba(90,165,255,.12)',
+    i: '#ff7e5a', iSoft: 'rgba(255,126,90,.12)',
+    soc: '#34c98a', socSoft: 'rgba(52,201,138,.12)',
+    t: '#f4b740',
+  } : {
+    bg: '#f6f7f9', card: '#ffffff', cardAlt: '#fafbfc',
+    border: 'rgba(15,20,30,.06)', text: '#0f1624', mute: '#64708a', soft: '#94a0b4',
+    brand: '#5b3fe8', brandSoft: 'rgba(91,63,232,.08)',
+    v: '#2b6dd6', vSoft: 'rgba(43,109,214,.08)',
+    i: '#e45d2f', iSoft: 'rgba(228,93,47,.08)',
+    soc: '#18a866', socSoft: 'rgba(24,168,102,.08)',
+    t: '#b8821a',
+  };
+
+  const sans = '"Inter", -apple-system, "SF Pro Text", system-ui, sans-serif';
+  const disp = '"Inter Display", "Inter", -apple-system, sans-serif';
+
+  const Card = ({ children, style }) => (
+    <div style={{ background: th.card, borderRadius: 16, border: `1px solid ${th.border}`,
+      boxShadow: dark ? 'none' : '0 1px 2px rgba(15,20,30,.04), 0 1px 1px rgba(15,20,30,.02)',
+      ...style }}>{children}</div>
+  );
+
+  const StatCard = ({ label, value, unit, delta, color, softBg, icon }) => (
+    <Card style={{ padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ fontSize: 13, color: th.mute, fontWeight: 500 }}>{label}</div>
+        <div style={{ width: 28, height: 28, borderRadius: 8, background: softBg, color,
+          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+        <span style={{ fontSize: 28, fontWeight: 600, fontFamily: disp, letterSpacing: -0.8, color: th.text, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+        <span style={{ fontSize: 14, color: th.mute, fontWeight: 500 }}>{unit}</span>
+      </div>
+      <div style={{ fontSize: 12, color: th.soft, marginTop: 4 }}>{delta}</div>
+    </Card>
+  );
+
+  return (
+    <div style={{ width: '100%', height: '100%', background: th.bg, color: th.text, fontFamily: sans,
+      display: 'grid', gridTemplateColumns: '220px 1fr', overflow: 'hidden' }}>
+      {/* Sidebar */}
+      <div style={{ borderRight: `1px solid ${th.border}`, padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px 18px' }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: th.brand,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, fontFamily: disp }}>T</div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: -0.2 }}>THOR</div>
+            <div style={{ fontSize: 11, color: th.soft }}>Battery ops</div>
+          </div>
+        </div>
+        {[
+          { name: 'Overview', on: true, ic: '◉' },
+          { name: 'Cells', ic: '▦' },
+          { name: 'CAN bus', ic: '↕' },
+          { name: 'Events', ic: '◔' },
+          { name: 'Settings', ic: '⚙' },
+        ].map(n => (
+          <div key={n.name} style={{ padding: '8px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10,
+            background: n.on ? th.brandSoft : 'transparent', color: n.on ? th.brand : th.mute, fontSize: 13, fontWeight: n.on ? 500 : 400 }}>
+            <span style={{ width: 16 }}>{n.ic}</span>{n.name}
+          </div>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div style={{ padding: 12, background: th.cardAlt, borderRadius: 12, border: `1px solid ${th.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 99, background: th.soc }} />
+            <span style={{ fontSize: 12, fontWeight: 500 }}>UART live</span>
+          </div>
+          <div style={{ fontSize: 11, color: th.soft, lineHeight: 1.5 }}>
+            /dev/ttyUSB0<br/>115200 · 10 Hz
+          </div>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{ overflow: 'auto', padding: '20px 24px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: disp, letterSpacing: -0.5 }}>Cell THOR-01</div>
+            <div style={{ fontSize: 13, color: th.mute, marginTop: 2 }}>Live monitoring · updated just now</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ padding: '7px 12px', borderRadius: 8, background: th.socSoft, color: th.soc, fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: th.soc }} />Nominal
+            </div>
+            <div style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${th.border}`, fontSize: 12, color: th.mute, fontWeight: 500 }}>Last 60s ▾</div>
+            <div style={{ padding: '7px 14px', borderRadius: 8, background: th.text, color: th.bg, fontSize: 12, fontWeight: 500 }}>Export</div>
+          </div>
+        </div>
+
+        {/* Stat row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+          <StatCard label="Voltage" value={now.V.toFixed(3)} unit="V" color={th.v} softBg={th.vSoft}
+            delta={`min ${Math.min(...V).toFixed(2)} · max ${Math.max(...V).toFixed(2)}`} icon="V" />
+          <StatCard label="Current" value={(now.I >= 0 ? '+' : '') + now.I.toFixed(2)} unit="A" color={th.i} softBg={th.iSoft}
+            delta={now.I < -0.1 ? 'Discharging' : now.I > 0.1 ? 'Charging' : 'Idle'} icon="I" />
+          <StatCard label="State of charge" value={now.SoC.toFixed(1)} unit="%" color={th.soc} softBg={th.socSoft}
+            delta="EKF · SoH 98.2%" icon="%" />
+          <StatCard label="Temperature" value={now.T.toFixed(1)} unit="°C" color={th.t} softBg="rgba(244,183,64,.12)"
+            delta={`avg ${(T.reduce((a,b)=>a+b,0)/T.length).toFixed(1)} °C`} icon="°" />
+        </div>
+
+        {/* Charts grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <Card style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Voltage & current</div>
+                <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>Rolling 60-second window</div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: th.mute }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: th.v }} />Voltage
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: th.mute }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: th.i }} />Current
+                </span>
+              </div>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <Sparkline data={V} width={420} height={150} stroke={th.v} fill={th.v} gradientId="v3V" strokeWidth={2} />
+              <div style={{ position: 'absolute', inset: 0 }}>
+                <Sparkline data={I} width={420} height={150} stroke={th.i} strokeWidth={2} baselineZero />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: th.soft, marginTop: 6 }}>
+              <span>-60s</span><span>-40s</span><span>-20s</span><span>now</span>
+            </div>
+          </Card>
+
+          <Card style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>State of charge</div>
+                <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>Extended Kalman filter estimate</div>
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 600, fontFamily: disp, letterSpacing: -0.8, color: th.soc, fontVariantNumeric: 'tabular-nums' }}>
+                {now.SoC.toFixed(1)}<span style={{ fontSize: 14, color: th.mute, marginLeft: 2 }}>%</span>
+              </div>
+            </div>
+            <Sparkline data={S} width={420} height={150} stroke={th.soc} fill={th.soc} gradientId="v3S" strokeWidth={2} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: th.soft, marginTop: 6 }}>
+              <span>-60s</span><span>-40s</span><span>-20s</span><span>now</span>
+            </div>
+          </Card>
+        </div>
+
+        {/* Lower row — CAN + min/max/avg + alarms */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+          <Card style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>CAN messages</div>
+                <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>Decoded per DBC · last 8 frames</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
+                <span style={{ padding: '3px 8px', borderRadius: 99, background: th.vSoft, color: th.v, fontWeight: 500 }}>RX {bms.can().filter(f=>f.dir==='RX').length}</span>
+                <span style={{ padding: '3px 8px', borderRadius: 99, background: th.iSoft, color: th.i, fontWeight: 500 }}>TX {bms.can().filter(f=>f.dir==='TX').length}</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {log.map((f, i) => {
+                const isTx = f.dir === 'TX';
+                const col = isTx ? th.i : th.v;
+                const softCol = isTx ? th.iSoft : th.vSoft;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                    background: th.cardAlt, borderRadius: 10, border: `1px solid ${th.border}` }}>
+                    <div style={{ width: 36, textAlign: 'center', fontSize: 10, fontWeight: 600, letterSpacing: 1,
+                      padding: '3px 0', borderRadius: 5, background: softCol, color: col }}>{f.dir}</div>
+                    <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12, fontWeight: 500, color: th.text, minWidth: 58 }}>
+                      0x{f.id.toString(16).toUpperCase().padStart(3,'0')}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: th.text, minWidth: 130 }}>{f.name}</div>
+                    <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '2px 14px', fontSize: 12 }}>
+                      {f.fields.slice(0,3).map((fd, j) => (
+                        <span key={j} style={{ color: th.mute }}>
+                          {fd.k} <span style={{ color: th.text, fontWeight: 500 }}>{fd.v}</span>
+                          {fd.u && <span style={{ color: th.soft }}> {fd.u}</span>}
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: th.soft, fontFamily: '"JetBrains Mono", monospace' }}>
+                      {i === 0 ? 'now' : `${(i * 0.3).toFixed(1)}s`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Card style={{ padding: '18px 20px' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Session statistics</div>
+              {[
+                { k: 'Voltage', unit: 'V', arr: V, col: th.v },
+                { k: 'Current', unit: 'A', arr: I, col: th.i },
+                { k: 'Temperature', unit: '°C', arr: T, col: th.t },
+              ].map((r, i) => {
+                let mn = Infinity, mx = -Infinity, s = 0;
+                for (const v of r.arr) { if (v < mn) mn = v; if (v > mx) mx = v; s += v; }
+                const avg = s / r.arr.length;
+                return (
+                  <div key={r.k} style={{ display: 'grid', gridTemplateColumns: '90px repeat(3, 1fr)', gap: 8, fontSize: 12,
+                    padding: '8px 0', borderTop: i > 0 ? `1px solid ${th.border}` : 'none' }}>
+                    <div style={{ color: th.mute, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 99, background: r.col }} />{r.k}
+                    </div>
+                    <div><div style={{ color: th.soft, fontSize: 10 }}>min</div><div style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{mn.toFixed(2)}</div></div>
+                    <div><div style={{ color: th.soft, fontSize: 10 }}>avg</div><div style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{avg.toFixed(2)}</div></div>
+                    <div><div style={{ color: th.soft, fontSize: 10 }}>max</div><div style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{mx.toFixed(2)}</div></div>
+                  </div>
+                );
+              })}
+            </Card>
+            <Card style={{ padding: '18px 20px' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Faults</div>
+              {[
+                { k: 'Over-voltage', on: false, lim: '4.20 V' },
+                { k: 'Under-voltage', on: false, lim: '2.80 V' },
+                { k: 'Over-temp', on: now.T > 45, lim: '45 °C' },
+                { k: 'Over-current', on: Math.abs(now.I) > 10, lim: '10 A' },
+              ].map((a, i) => (
+                <div key={a.k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '8px 0', borderTop: i > 0 ? `1px solid ${th.border}` : 'none', fontSize: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 99, background: a.on ? '#ef4444' : th.soc }} />
+                    <span>{a.k}</span>
+                  </div>
+                  <div style={{ color: th.mute, fontSize: 11 }}>≤ {a.lim}</div>
+                </div>
+              ))}
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.V3SaaS = V3SaaS;

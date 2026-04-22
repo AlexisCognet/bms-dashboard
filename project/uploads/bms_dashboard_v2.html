@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EBUS — BMS Demonstrator</title>
+<style>
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f4f0;
+  --bg-tertiary: #eae9e4;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b6b;
+  --text-tertiary: #9a9a9a;
+  --border: rgba(0,0,0,0.12);
+  --border-hover: rgba(0,0,0,0.25);
+  --teal: #1D9E75;
+  --teal-light: #E1F5EE;
+  --teal-dark: #085041;
+  --coral: #D85A30;
+  --purple: #534AB7;
+  --blue: #378ADD;
+  --gray-mid: #888780;
+  --warn-bg: #FAEEDA;
+  --warn-text: #854F0B;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+@media(prefers-color-scheme:dark){
+  :root {
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #242422;
+    --bg-tertiary: #2c2c2a;
+    --text-primary: #e8e8e8;
+    --text-secondary: #a0a0a0;
+    --text-tertiary: #707070;
+    --border: rgba(255,255,255,0.1);
+    --border-hover: rgba(255,255,255,0.2);
+    --teal: #5DCAA5;
+    --teal-light: #085041;
+    --teal-dark: #9FE1CB;
+    --coral: #F0997B;
+    --purple: #AFA9EC;
+    --blue: #85B7EB;
+    --gray-mid: #B4B2A9;
+    --warn-bg: #412402;
+    --warn-text: #FAC775;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); background: var(--bg-tertiary); color: var(--text-primary); padding: 1.5rem; min-height: 100vh; }
+.db-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; }
+.db-header h1 { font-size: 20px; font-weight: 500; }
+.badge { font-size: 11px; padding: 3px 10px; border-radius: var(--radius-md); background: var(--teal-light); color: var(--teal-dark); font-weight: 500; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 1.5rem; }
+.mc { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 0.75rem 1rem; }
+.mc-l { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.mc-v { font-size: 22px; font-weight: 500; }
+.mc-s { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+.panels { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; margin-bottom: 16px; }
+.panel { background: var(--bg-primary); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.25rem; }
+.pt { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+.legend span { display: flex; align-items: center; gap: 4px; }
+.lsq { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.lln { width: 14px; height: 0; display: inline-block; }
+.ch-wrap { position: relative; width: 100%; height: 200px; }
+.can-log { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; max-height: 220px; overflow-y: auto; }
+.can-row { display: flex; gap: 8px; padding: 2px 6px; border-radius: 3px; }
+.can-row:nth-child(odd) { background: var(--bg-secondary); }
+.can-ts { color: var(--text-tertiary); min-width: 60px; }
+.can-id { font-weight: 500; min-width: 50px; }
+.can-id-tx { color: var(--teal); }
+.can-id-rx { color: var(--blue); }
+.can-data { color: var(--text-secondary); }
+.can-decoded { color: var(--text-primary); font-family: var(--font-sans); font-size: 11px; margin-left: auto; }
+.ctrl-row { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
+.ctrl-row label { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.ctrl-row input[type=range] { flex: 1; height: 4px; accent-color: var(--teal); }
+.ctrl-val { font-size: 13px; font-weight: 500; min-width: 40px; text-align: right; }
+.warn-box { margin-top: 8px; padding: 6px 10px; border-radius: var(--radius-md); background: var(--warn-bg); font-size: 12px; color: var(--warn-text); }
+.can-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+@media (max-width: 700px) {
+  .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .panels { grid-template-columns: minmax(0,1fr); }
+}
+</style>
+</head>
+<body>
+
+<div class="db-header">
+  <h1>EBUS — BMS demonstrator</h1>
+  <span class="badge">LIVE</span>
+</div>
+
+<div class="metrics">
+  <div class="mc"><div class="mc-l">Tension terminale</div><div class="mc-v" id="mVt">3.28 V</div><div class="mc-s">LiFePO4 cellule</div></div>
+  <div class="mc"><div class="mc-l">Courant</div><div class="mc-v" id="mI">-2.1 A</div><div class="mc-s" id="mIl">Décharge</div></div>
+  <div class="mc"><div class="mc-l">SoC (EKF)</div><div class="mc-v" id="mSoC" style="color:var(--teal);">62 %</div><div class="mc-s">Filtre de Kalman étendu</div></div>
+  <div class="mc"><div class="mc-l">Température</div><div class="mc-v">25 °C</div><div class="mc-s">Capteur NTC</div></div>
+</div>
+
+<div class="panels">
+  <div class="panel">
+    <div class="pt">Tension et courant</div>
+    <div class="legend">
+      <span><span class="lsq" style="background:var(--purple);"></span>Tension (V)</span>
+      <span><span class="lsq" style="background:var(--coral);"></span>Courant (A)</span>
+    </div>
+    <div class="ch-wrap"><canvas id="chartVI" role="img" aria-label="Courbes de tension et courant en temps réel"></canvas></div>
+  </div>
+  <div class="panel">
+    <div class="pt">SoC — EKF vs Coulomb counting</div>
+    <div class="legend">
+      <span><span class="lsq" style="background:var(--teal);"></span>EKF</span>
+      <span><span class="lsq" style="background:var(--coral);"></span>Coulomb counting</span>
+      <span><span class="lln" style="border-top:2px dashed var(--gray-mid);"></span>SoC réel</span>
+    </div>
+    <div class="ch-wrap"><canvas id="chartSoC" role="img" aria-label="Comparaison SoC EKF, Coulomb counting et valeur réelle"></canvas></div>
+    <div class="ctrl-row">
+      <label>SoC initial CC</label>
+      <input type="range" min="30" max="100" value="90" step="1" id="slCC"/>
+      <span class="ctrl-val" id="slCCv">90%</span>
+    </div>
+    <div class="ctrl-row">
+      <label>Bruit capteur I</label>
+      <input type="range" min="0" max="100" value="20" step="1" id="slN"/>
+      <span class="ctrl-val" id="slNv">20%</span>
+    </div>
+  </div>
+</div>
+
+<div class="panels">
+  <div class="panel">
+    <div class="pt">Courbe OCV — LiFePO4</div>
+    <div class="legend">
+      <span><span class="lsq" style="background:var(--teal);"></span>OCV (V)</span>
+      <span><span class="lln" style="border-top:2px dashed var(--coral);"></span>dOCV/dSoC</span>
+    </div>
+    <div class="ch-wrap"><canvas id="chartOCV" role="img" aria-label="Courbe OCV LiFePO4 avec dérivée"></canvas></div>
+    <div class="warn-box">Zone plate (20-80%) : le gain de Kalman chute — le filtre "devient sourd"</div>
+  </div>
+  <div class="panel">
+    <div class="can-header">
+      <div class="pt">Bus CAN — trames</div>
+      <span class="badge">500 kbit/s</span>
+    </div>
+    <div class="can-log" id="canLog"></div>
+    <div style="display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--text-secondary);">
+      <span style="display:flex;align-items:center;gap:4px;"><span class="lsq" style="background:var(--teal);width:8px;height:8px;"></span>TX (sim → BMS)</span>
+      <span style="display:flex;align-items:center;gap:4px;"><span class="lsq" style="background:var(--blue);width:8px;height:8px;"></span>RX (BMS → PC)</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const isDk = matchMedia('(prefers-color-scheme:dark)').matches;
+const cPurple = isDk ? '#AFA9EC' : '#534AB7';
+const cCoral = isDk ? '#F0997B' : '#D85A30';
+const cTeal = isDk ? '#5DCAA5' : '#1D9E75';
+const cGray = isDk ? '#B4B2A9' : '#888780';
+const cBlue = isDk ? '#85B7EB' : '#378ADD';
+const gridC = isDk ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+const txtC = isDk ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)';
+const MAX = 80;
+
+const ocvSoc = Array.from({length:101},(_,i)=>i);
+const ocvV = ocvSoc.map(s=>{const x=s/100;if(x<0.1)return 2.5+x*8;if(x<0.2)return 3.3+(x-0.1)*1.5;if(x<0.8)return 3.3+(x-0.2)*0.033;if(x<0.9)return 3.32+(x-0.8)*1.8;return 3.5+(x-0.9)*1.5;});
+const docv = ocvSoc.map((_,i)=>{if(i===0)return(ocvV[1]-ocvV[0])*100;if(i===100)return(ocvV[100]-ocvV[99])*100;return(ocvV[i+1]-ocvV[i-1])/2*100;});
+
+function getOCV(soc){return ocvV[Math.max(0,Math.min(100,Math.round(soc)))];}
+
+const labels = Array(MAX).fill('');
+const dV=[],dI=[],dSoCekf=[],dSoCcc=[],dSoCreal=[];
+for(let i=0;i<MAX;i++){dV.push(null);dI.push(null);dSoCekf.push(null);dSoCcc.push(null);dSoCreal.push(null);}
+
+const cfgLine = (id,datasets,yAxes) => new Chart(document.getElementById(id),{
+  type:'line',
+  data:{labels,datasets},
+  options:{responsive:true,maintainAspectRatio:false,animation:{duration:0},
+    plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}},
+    scales:{x:{display:false},...yAxes},
+    elements:{point:{radius:0},line:{tension:0.3,borderWidth:2}}}
+});
+
+const chartVI = cfgLine('chartVI',[
+  {label:'V',data:dV,borderColor:cPurple,yAxisID:'yV'},
+  {label:'I',data:dI,borderColor:cCoral,yAxisID:'yI'}
+],{
+  yV:{position:'left',title:{display:true,text:'V',color:txtC,font:{size:11}},ticks:{color:txtC,font:{size:10}},grid:{color:gridC},min:2.4,max:3.7},
+  yI:{position:'right',title:{display:true,text:'A',color:txtC,font:{size:11}},ticks:{color:txtC,font:{size:10}},grid:{display:false},min:-8,max:2}
+});
+
+const chartSoC = cfgLine('chartSoC',[
+  {label:'EKF',data:dSoCekf,borderColor:cTeal,yAxisID:'y'},
+  {label:'CC',data:dSoCcc,borderColor:cCoral,yAxisID:'y'},
+  {label:'Réel',data:dSoCreal,borderColor:cGray,borderDash:[5,4],borderWidth:1.5,yAxisID:'y'}
+],{
+  y:{title:{display:true,text:'SoC (%)',color:txtC,font:{size:11}},ticks:{color:txtC,font:{size:10}},grid:{color:gridC},min:0,max:100}
+});
+
+new Chart(document.getElementById('chartOCV'),{
+  type:'line',
+  data:{labels:ocvSoc,datasets:[
+    {label:'OCV',data:ocvV,borderColor:cTeal,borderWidth:2,pointRadius:0,yAxisID:'y',tension:0.3},
+    {label:'dOCV',data:docv,borderColor:cCoral,borderWidth:1.5,borderDash:[4,3],pointRadius:0,yAxisID:'y1',tension:0.3}
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{
+      x:{title:{display:true,text:'SoC (%)',color:txtC,font:{size:11}},ticks:{color:txtC,font:{size:10},maxTicksLimit:6},grid:{color:gridC}},
+      y:{position:'left',title:{display:true,text:'V',color:txtC,font:{size:11}},ticks:{color:txtC,font:{size:10}},grid:{color:gridC},min:2.4,max:3.7},
+      y1:{position:'right',title:{display:true,text:'dOCV/dSoC',color:txtC,font:{size:11}},ticks:{color:txtC,font:{size:10}},grid:{display:false},min:0,max:10}
+    }}
+});
+
+let trueSoC=62, ekfSoC=62, ccSoC=90, noise=20, t=0;
+const canEl = document.getElementById('canLog');
+
+function hex(v,n){return v.toString(16).toUpperCase().padStart(n,'0');}
+function rHex(){return hex(Math.floor(Math.random()*256),2);}
+
+function addCanRow(ts,id,isTx,dataBytes,decoded){
+  const row = document.createElement('div');
+  row.className='can-row';
+  row.innerHTML='<span class="can-ts">'+ts+'</span><span class="can-id '+(isTx?'can-id-tx':'can-id-rx')+'">0x'+hex(id,3)+'</span><span class="can-data">['+dataBytes+']</span><span class="can-decoded">'+decoded+'</span>';
+  canEl.appendChild(row);
+  if(canEl.children.length>50) canEl.removeChild(canEl.firstChild);
+  canEl.scrollTop=canEl.scrollHeight;
+}
+
+function fmtTime(s){const m=Math.floor(s/60);return String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+
+document.getElementById('slCC').addEventListener('input',function(e){ccSoC=+e.target.value;document.getElementById('slCCv').textContent=ccSoC+'%';});
+document.getElementById('slN').addEventListener('input',function(e){noise=+e.target.value;document.getElementById('slNv').textContent=noise+'%';});
+
+function push(arr,v){arr.push(v);if(arr.length>MAX)arr.shift();}
+
+setInterval(function(){
+  t++;
+  var profile = [-2,-3,-5,-2,0,-1,-4,-6,-3,0];
+  var baseI = profile[t%profile.length];
+  var Inow = baseI + (Math.random()-0.5)*0.4;
+
+  trueSoC = Math.max(3,Math.min(97, trueSoC + Inow*0.15));
+  ekfSoC += (trueSoC - ekfSoC)*0.1 + (Math.random()-0.5)*0.3;
+  ekfSoC = Math.max(0,Math.min(100,ekfSoC));
+  var drift = noise*0.004;
+  ccSoC = Math.max(0,Math.min(100, ccSoC + Inow*0.15 - drift*(Math.random()-0.2)));
+
+  var Vt = getOCV(trueSoC) + 0.03*Inow + (Math.random()-0.5)*0.01;
+
+  push(dV,+Vt.toFixed(3));
+  push(dI,+Inow.toFixed(2));
+  push(dSoCekf,+ekfSoC.toFixed(1));
+  push(dSoCcc,+ccSoC.toFixed(1));
+  push(dSoCreal,+trueSoC.toFixed(1));
+
+  chartVI.update();
+  chartSoC.update();
+
+  document.getElementById('mVt').textContent=Vt.toFixed(2)+' V';
+  document.getElementById('mI').textContent=(Inow>0?'+':'')+Inow.toFixed(1)+' A';
+  document.getElementById('mIl').textContent=Inow<-0.1?'Décharge':Inow>0.1?'Charge':'Repos';
+  document.getElementById('mSoC').textContent=Math.round(ekfSoC)+' %';
+
+  var ts=fmtTime(t);
+  var vBytes = Math.round(Vt*1000);
+  var iBytes = Math.round((Inow+10)*1000);
+  addCanRow(ts, 0x100, true,
+    hex((vBytes>>8)&0xFF,2)+' '+hex(vBytes&0xFF,2)+' '+hex((iBytes>>8)&0xFF,2)+' '+hex(iBytes&0xFF,2)+' FA '+rHex()+' '+rHex()+' '+rHex(),
+    'V='+Vt.toFixed(2)+' I='+Inow.toFixed(1)+' T=25'
+  );
+
+  if(t%3===0){
+    var socBytes=Math.round(ekfSoC*10);
+    addCanRow(ts, 0x200, false,
+      hex((socBytes>>8)&0xFF,2)+' '+hex(socBytes&0xFF,2)+' 01 00 00 00 00 00',
+      'SoC='+ekfSoC.toFixed(1)+'% OK'
+    );
+  }
+},500);
+</script>
+</body>
+</html>
