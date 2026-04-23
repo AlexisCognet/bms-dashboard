@@ -677,11 +677,11 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                     </span>
                   </div>
                 </div>
-                <div style={{ position: "relative", height: 260 }}>
+                <div style={{ position: "relative", height: 400 }}>
                   <Sparkline
                     data={V}
                     width={600}
-                    height={260}
+                    height={400}
                     stroke={th.v}
                     fill={th.v}
                     gradientId="saasV"
@@ -692,7 +692,7 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                     <Sparkline
                       data={I}
                       width={600}
-                      height={260}
+                      height={400}
                       stroke={th.i}
                       strokeWidth={2}
                       baselineZero
@@ -752,11 +752,11 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                     </span>
                   </div>
                 </div>
-                <div style={{ height: 260 }}>
+                <div style={{ height: 400 }}>
                   <Sparkline
                     data={SoC}
                     width={600}
-                    height={260}
+                    height={400}
                     stroke={th.soc}
                     fill={th.soc}
                     gradientId="saasS"
