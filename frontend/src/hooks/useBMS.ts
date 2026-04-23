@@ -12,11 +12,13 @@ const N = HISTORY_SEC * HZ;
 function createSimulator() {
   const V = new Float32Array(N);
   const I = new Float32Array(N);
-  const SoC = new Float32Array(N);
+  const SoC = new Float32Array(N);       // EKF
+  const SoC_real = new Float32Array(N);  // ground-truth
   const T = new Float32Array(N);
   const P = new Float32Array(N);
 
   let soc = 67.4;
+  let socReal = 68.0;
   let vNom = 3.74;
   let iNom = -1.8;
   let temp = 28.4;
@@ -67,6 +69,7 @@ function createSimulator() {
     V[i] = vV;
     I[i] = iV;
     SoC[i] = 68 - (i / N) * 1.2;
+    SoC_real[i] = 68 - (i / N) * 1.1 + 0.4;
     T[i] = 28 + Math.sin(ph * 2) * 1.5;
     P[i] = vV * iV;
   }
@@ -80,6 +83,10 @@ function createSimulator() {
       Math.sin(ph * 2.1) * 0.5 +
       (Math.random() - 0.5) * 0.15;
     soc = Math.max(0, Math.min(100, soc + iNom * 0.0008));
+    socReal = Math.max(
+      0,
+      Math.min(100, soc + 0.6 + Math.sin(ph * 0.3) * 0.3)
+    );
     const ocv = 3.4 + soc * 0.008 + Math.max(0, soc - 60) * 0.002;
     vNom = ocv + iNom * 0.022 + (Math.random() - 0.5) * 0.004;
     temp +=
@@ -90,12 +97,14 @@ function createSimulator() {
       V[k] = V[k + 1];
       I[k] = I[k + 1];
       SoC[k] = SoC[k + 1];
+      SoC_real[k] = SoC_real[k + 1];
       T[k] = T[k + 1];
       P[k] = P[k + 1];
     }
     V[N - 1] = vNom;
     I[N - 1] = iNom;
     SoC[N - 1] = soc;
+    SoC_real[N - 1] = socReal;
     T[N - 1] = temp;
     P[N - 1] = vNom * iNom;
 
@@ -130,6 +139,7 @@ function createSimulator() {
       V: V.slice() as unknown as Float32Array,
       I: I.slice() as unknown as Float32Array,
       SoC: SoC.slice() as unknown as Float32Array,
+      SoC_real: SoC_real.slice() as unknown as Float32Array,
       T: T.slice() as unknown as Float32Array,
       P: P.slice() as unknown as Float32Array,
       canLog: canLog.slice(-50),
@@ -190,6 +200,7 @@ export function useBMS(): BMSState {
             V: new Float32Array(data.V),
             I: new Float32Array(data.I),
             SoC: new Float32Array(data.SoC),
+            SoC_real: new Float32Array(data.SoC_real ?? data.SoC),
             T: new Float32Array(data.T ?? []),
             P: new Float32Array(data.P ?? []),
             canLog: data.canLog ?? [],

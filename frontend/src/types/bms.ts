@@ -35,7 +35,8 @@ export interface BMSState {
   now: BMSSnapshot;
   V: Float32Array;
   I: Float32Array;
-  SoC: Float32Array;
+  SoC: Float32Array;       // EKF estimate
+  SoC_real: Float32Array;  // ground-truth from BMS
   T: Float32Array;
   P: Float32Array;
   canLog: CANFrame[];

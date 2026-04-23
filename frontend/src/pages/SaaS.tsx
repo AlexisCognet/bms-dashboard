@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useBMS } from "../hooks/useBMS";
-import { Sparkline } from "../components/Sparkline";
+import { AxisChart } from "../components/AxisChart";
 import type { CANFrame } from "../types/bms";
 
 const SANS =
@@ -320,8 +320,9 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
   const th = dark ? DARK_TH : LIGHT_TH;
   const [view, setView] = useState<View>("overview");
 
-  const { now, V, I, SoC, T, canLog } = bms;
+  const { now, V, I, SoC, SoC_real, T, canLog } = bms;
   const fullLog = canLog.slice().reverse();
+  const chartTheme = { mute: th.mute, soft: th.soft, border: th.border, text: th.text };
 
   const vMin = Math.min(...(V as unknown as number[]));
   const vMax = Math.max(...(V as unknown as number[]));
@@ -691,46 +692,31 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                     </span>
                   </div>
                 </div>
-                <div style={{ position: "relative", height: 400 }}>
-                  <Sparkline
-                    data={V}
-                    width={600}
-                    height={400}
-                    stroke={th.v}
-                    fill={th.v}
-                    gradientId="saasV"
-                    strokeWidth={2}
-                    responsive
-                  />
-                  <div style={{ position: "absolute", inset: 0 }}>
-                    <Sparkline
-                      data={I}
-                      width={600}
-                      height={400}
-                      stroke={th.i}
-                      strokeWidth={2}
-                      baselineZero
-                      responsive
-                    />
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 11,
-                    color: th.soft,
-                    marginTop: 6,
-                  }}
-                >
-                  <span>-60s</span>
-                  <span>-40s</span>
-                  <span>-20s</span>
-                  <span>now</span>
-                </div>
+                <AxisChart
+                  width={600}
+                  height={400}
+                  theme={chartTheme}
+                  yLeft={{ unit: "V", color: th.v, tickCount: 5 }}
+                  yRight={{ unit: "A", color: th.i, tickCount: 5 }}
+                  xLabels={["-60s", "-40s", "-20s", "now"]}
+                  series={[
+                    {
+                      data: V,
+                      stroke: th.v,
+                      fill: th.v,
+                      gradientId: "saasV",
+                      axis: "left",
+                    },
+                    {
+                      data: I,
+                      stroke: th.i,
+                      axis: "right",
+                    },
+                  ]}
+                />
               </Card>
 
-              {/* SoC */}
+              {/* SoC — EKF + real ground truth, two curves */}
               <Card style={{ padding: "18px 20px" }} th={th}>
                 <div
                   style={{
@@ -745,53 +731,70 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                       State of charge
                     </div>
                     <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>
-                      Extended Kalman filter estimate
+                      EKF estimate vs. ground truth
                     </div>
                   </div>
-                  <div
-                    style={{
-                      fontSize: 28,
-                      fontWeight: 600,
-                      fontFamily: DISP,
-                      letterSpacing: -0.8,
-                      color: th.soc,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {now.SoC.toFixed(1)}
+                  <div style={{ display: "flex", gap: 14, fontSize: 12 }}>
                     <span
-                      style={{ fontSize: 14, color: th.mute, marginLeft: 2 }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        color: th.mute,
+                      }}
                     >
-                      %
+                      <span
+                        style={{
+                          width: 12,
+                          height: 2,
+                          background: th.soc,
+                          display: "inline-block",
+                        }}
+                      />
+                      EKF {now.SoC.toFixed(1)}%
+                    </span>
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        color: th.mute,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 12,
+                          height: 0,
+                          borderTop: `2px dashed ${th.v}`,
+                          display: "inline-block",
+                        }}
+                      />
+                      Real {(bms.status?.soc_real ?? now.SoC).toFixed(1)}%
                     </span>
                   </div>
                 </div>
-                <div style={{ height: 400 }}>
-                  <Sparkline
-                    data={SoC}
-                    width={600}
-                    height={400}
-                    stroke={th.soc}
-                    fill={th.soc}
-                    gradientId="saasS"
-                    strokeWidth={2}
-                    responsive
-                  />
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 11,
-                    color: th.soft,
-                    marginTop: 6,
-                  }}
-                >
-                  <span>-60s</span>
-                  <span>-40s</span>
-                  <span>-20s</span>
-                  <span>now</span>
-                </div>
+                <AxisChart
+                  width={600}
+                  height={400}
+                  theme={chartTheme}
+                  yLeft={{ unit: "%", color: th.soc, tickCount: 5 }}
+                  xLabels={["-60s", "-40s", "-20s", "now"]}
+                  series={[
+                    {
+                      data: SoC,
+                      stroke: th.soc,
+                      fill: th.soc,
+                      gradientId: "saasS",
+                      axis: "left",
+                    },
+                    {
+                      data: SoC_real,
+                      stroke: th.v,
+                      dashed: true,
+                      axis: "left",
+                    },
+                  ]}
+                />
               </Card>
             </div>
 

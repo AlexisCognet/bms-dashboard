@@ -34,6 +34,7 @@ Run:
 
 import asyncio
 import json
+import logging
 import math
 import os
 import random
@@ -49,6 +50,25 @@ try:
     import serial  # pyserial
 except ImportError:  # pragma: no cover
     serial = None  # type: ignore
+
+# ---------------------------------------------------------------------------
+# Logging — one-line format with time, level, subsystem, message.
+# Subsystems: bms.serial (UART I/O), bms.parse (CSV parsing), bms.ws
+# (WebSocket clients), bms.sim (simulator fallback).
+#
+# Default level is INFO. Set BMS_LOG_LEVEL=DEBUG to also see every raw UART
+# line and every parsed sample (otherwise we log a 1 Hz summary instead).
+# ---------------------------------------------------------------------------
+LOG_LEVEL = os.environ.get("BMS_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s.%(msecs)03d [%(levelname)-5s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+log_serial = logging.getLogger("bms.serial")
+log_parse = logging.getLogger("bms.parse")
+log_ws = logging.getLogger("bms.ws")
+log_sim = logging.getLogger("bms.sim")
 
 app = FastAPI(title="THOR BMS API")
 
@@ -76,17 +96,22 @@ N = HISTORY_SEC * HZ  # 600 samples
 # ---------------------------------------------------------------------------
 _V = [0.0] * N
 _I = [0.0] * N
-_SoC = [0.0] * N
+_SoC = [0.0] * N       # EKF estimate, percent
+_SoC_real = [0.0] * N  # ground-truth from BMS, percent
 _T = [0.0] * N
 _P = [0.0] * N
 
-_soc = 67.4          # percent
+_soc = 67.4          # percent (EKF estimate)
 _v_nom = 3.74        # volts
 _i_nom = -1.8        # amperes
 _temp = 25.0         # °C (placeholder — BMS does not send this)
-_soc_real = 67.4     # percent, optional ground-truth from BMS
+_soc_real = 67.4     # percent, ground-truth from BMS
 _bms_uptime_ms = 0   # latest uptime reported by BMS
 _tick = 0
+
+# Count raw UART lines received since boot — used for periodic log summary
+_rx_count = 0
+_rx_bad = 0
 
 _source = "sim"          # "sim" | "serial"
 _serial_connected = False
@@ -149,6 +174,7 @@ for _i in range(N):
     _V[_i] = _vV
     _I[_i] = _iV
     _SoC[_i] = 68.0 - (_i / N) * 1.2
+    _SoC_real[_i] = 68.0 - (_i / N) * 1.1  # slight offset to make the two curves visible
     _T[_i] = _temp
     _P[_i] = _vV * _iV
 
@@ -158,7 +184,7 @@ for _i in range(N):
 # ---------------------------------------------------------------------------
 def _sim_step() -> None:
     """Advance the simulated BMS state by one tick."""
-    global _v_nom, _i_nom, _soc, _temp
+    global _v_nom, _i_nom, _soc, _soc_real, _temp
     ph = _tick / HZ
     _i_nom = (
         -1.8
@@ -167,6 +193,11 @@ def _sim_step() -> None:
         + (random.random() - 0.5) * 0.15
     )
     _soc = max(0.0, min(100.0, _soc + _i_nom * 0.0008))
+    # Simulated "real" SoC drifts slightly from EKF so the two curves are
+    # visibly distinct on the dashboard.
+    _soc_real = max(
+        0.0, min(100.0, _soc + 0.6 + math.sin(ph * 0.3) * 0.3)
+    )
     ocv = 3.40 + _soc * 0.008 + max(0, _soc - 60) * 0.002
     _v_nom = ocv + _i_nom * 0.022 + (random.random() - 0.5) * 0.004
     _temp += (28.5 + abs(_i_nom) * 0.3 - _temp) * 0.02 + (random.random() - 0.5) * 0.05
@@ -182,62 +213,102 @@ def _sim_step() -> None:
 # ---------------------------------------------------------------------------
 def _parse_csv_line(line: str) -> bool:
     """Parse one `CSV,...` line and update globals. Returns True on success."""
-    global _v_nom, _i_nom, _soc, _soc_real, _bms_uptime_ms
-    if not line or not line.startswith("CSV"):
+    global _v_nom, _i_nom, _soc, _soc_real, _bms_uptime_ms, _rx_bad
+    if not line:
+        return False
+    if not line.startswith("CSV"):
+        log_parse.warning("skipped non-CSV line: %r", line[:80])
+        _rx_bad += 1
         return False
     parts = line.split(",")
     if len(parts) < 6 or parts[0] != "CSV":
+        log_parse.warning("malformed (got %d fields): %r", len(parts), line[:80])
+        _rx_bad += 1
         return False
     try:
         _bms_uptime_ms = int(parts[1])
         _v_nom = float(parts[2])
         _i_nom = float(parts[3])
-        # SoC arrives as a fraction 0.0-1.0 — convert to percent for the UI
         _soc = max(0.0, min(100.0, float(parts[4]) * 100.0))
         _soc_real = max(0.0, min(100.0, float(parts[5]) * 100.0))
+        log_parse.debug(
+            "t=%dms V=%.4f I=%.4f SoC_ekf=%.2f%% SoC_real=%.2f%%",
+            _bms_uptime_ms, _v_nom, _i_nom, _soc, _soc_real,
+        )
         return True
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as e:
+        log_parse.warning("parse error %s in %r", e, line[:80])
+        _rx_bad += 1
         return False
 
 
 def _serial_loop() -> None:
     """Blocking read loop. Runs in its own daemon thread."""
-    global _serial_connected, _serial_err, _source
+    global _serial_connected, _serial_err, _source, _rx_count
     if serial is None:
         _serial_err = "pyserial is not installed"
-        print(f"[serial] {_serial_err} — running in simulator mode")
+        log_serial.error("%s — running simulator instead", _serial_err)
         return
 
     while True:
         try:
-            print(f"[serial] opening {SERIAL_PORT} @ {SERIAL_BAUD}…")
+            log_serial.info("opening %s @ %d …", SERIAL_PORT, SERIAL_BAUD)
             with serial.Serial(
                 SERIAL_PORT, SERIAL_BAUD, timeout=1.0
             ) as ser:
                 _serial_connected = True
                 _serial_err = None
                 _source = "serial"
-                print(f"[serial] connected on {SERIAL_PORT}")
+                log_serial.info("connected on %s — reading lines", SERIAL_PORT)
+                last_summary = time.monotonic()
+                samples_since_summary = 0
                 while True:
                     raw = ser.readline()
                     if not raw:
-                        continue  # timeout, loop again
+                        # timeout — no data in 1 s, warn if it persists
+                        if time.monotonic() - last_summary > 3:
+                            log_serial.warning(
+                                "no data received in the last %.1fs",
+                                time.monotonic() - last_summary,
+                            )
+                            last_summary = time.monotonic()
+                        continue
                     try:
                         line = raw.decode("utf-8", errors="ignore").strip()
-                    except Exception:
+                    except Exception as e:
+                        log_serial.debug("decode error: %s (%d bytes)", e, len(raw))
                         continue
-                    _parse_csv_line(line)
+                    log_serial.debug("rx: %r", line)
+                    if _parse_csv_line(line):
+                        _rx_count += 1
+                        samples_since_summary += 1
+                    # Periodic INFO summary — keeps the console informative
+                    # without flooding it at 10 Hz
+                    now = time.monotonic()
+                    if now - last_summary >= 1.0:
+                        log_serial.info(
+                            "%d samples/s | V=%.3fV I=%+.3fA SoC_ekf=%.1f%% "
+                            "SoC_real=%.1f%% t_bms=%dms | total=%d bad=%d",
+                            samples_since_summary, _v_nom, _i_nom, _soc,
+                            _soc_real, _bms_uptime_ms, _rx_count, _rx_bad,
+                        )
+                        samples_since_summary = 0
+                        last_summary = now
         except (OSError, serial.SerialException) as e:
+            was_connected = _serial_connected
             _serial_connected = False
             _serial_err = str(e)
             _source = "sim"
-            print(f"[serial] error: {e} — retrying in 2 s")
+            if was_connected:
+                log_serial.error("disconnected: %s", e)
+            else:
+                log_serial.warning("cannot open: %s — retrying in 2 s", e)
             time.sleep(2)
         except Exception as e:
             _serial_connected = False
             _serial_err = f"unexpected: {e}"
             _source = "sim"
-            print(f"[serial] unexpected error: {e}")
+            log_serial.exception("unexpected error — retrying in 2 s")
             time.sleep(2)
 
 
@@ -255,11 +326,13 @@ def _advance() -> None:
         _V[k] = _V[k + 1]
         _I[k] = _I[k + 1]
         _SoC[k] = _SoC[k + 1]
+        _SoC_real[k] = _SoC_real[k + 1]
         _T[k] = _T[k + 1]
         _P[k] = _P[k + 1]
     _V[N - 1] = _v_nom
     _I[N - 1] = _i_nom
     _SoC[N - 1] = _soc
+    _SoC_real[N - 1] = _soc_real
     _T[N - 1] = _temp
     _P[N - 1] = _v_nom * _i_nom
 
@@ -317,6 +390,7 @@ def snapshot() -> dict:
         "V": [round(x, 4) for x in _V],
         "I": [round(x, 4) for x in _I],
         "SoC": [round(x, 3) for x in _SoC],
+        "SoC_real": [round(x, 3) for x in _SoC_real],
         "T": [round(x, 3) for x in _T],
         "canLog": _can_log[-50:],
         # Status telemetry (shown in the sidebar / status line)
@@ -342,6 +416,8 @@ _clients: set[WebSocket] = set()
 async def ws_endpoint(websocket: WebSocket):
     await websocket.accept()
     _clients.add(websocket)
+    peer = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "?"
+    log_ws.info("client connected (%s) — %d total", peer, len(_clients))
     try:
         await websocket.send_text(json.dumps(snapshot()))
         while True:
@@ -353,6 +429,7 @@ async def ws_endpoint(websocket: WebSocket):
         pass
     finally:
         _clients.discard(websocket)
+        log_ws.info("client disconnected (%s) — %d remaining", peer, len(_clients))
 
 
 async def _ticker():
@@ -373,11 +450,14 @@ async def _ticker():
 
 @app.on_event("startup")
 async def startup():
-    # Kick off the serial reader unless explicitly forced into sim mode.
+    logging.getLogger("bms").info(
+        "starting up — mode=%s port=%s baud=%d hz=%d log_level=%s",
+        MODE, SERIAL_PORT, SERIAL_BAUD, HZ, LOG_LEVEL,
+    )
     if MODE != "sim":
         _start_serial_thread()
     else:
-        print("[bms] BMS_MODE=sim — not opening serial port")
+        log_sim.info("BMS_MODE=sim — not opening serial, running simulator")
     asyncio.create_task(_ticker())
 
 
