@@ -1,23 +1,54 @@
 """
 THOR BMS Dashboard — FastAPI backend.
 
-Streams simulated BMS telemetry at 10 Hz over a WebSocket at /ws.
-Designed to be swapped for real UART data: replace the `step()` function
-with reads from pyserial and parse your DBC there.
+Reads real BMS telemetry from a UART serial port (default COM4 @ 115200) and
+streams it to the frontend at 10 Hz via a WebSocket (/ws).
+
+Wire protocol — one ASCII line per sample:
+    CSV,<time_ms>,<V>,<I>,<SoC_ekf>,<SoC_real>
+    CSV,84183,4.1294,-0.5000,0.8930,0.9926
+
+Where:
+    time_ms     BMS uptime in milliseconds (integer)
+    V           cell voltage, volts
+    I           cell current, amperes (negative = discharging)
+    SoC_ekf     state of charge estimate from EKF, fraction 0.0-1.0
+    SoC_real    "true" state of charge (e.g. coulomb-counted), fraction 0.0-1.0
+
+The SoC fractions are converted to percent (×100) to match the dashboard.
+Temperature is not sent by the BMS; it's held at a fixed placeholder (25°C).
+
+Configuration via environment variables:
+    BMS_SERIAL_PORT     default 'COM4' on Windows, '/dev/ttyUSB0' on Linux
+    BMS_SERIAL_BAUD     default 115200
+    BMS_MODE            'auto' (try serial, fall back to sim) | 'sim' | 'real'
 
 Run:
-    uvicorn main:app --reload --port 8000
+    # Windows cmd
+    set BMS_SERIAL_PORT=COM4 && uvicorn main:app --reload --port 8000
+    # Windows PowerShell
+    $env:BMS_SERIAL_PORT='COM4'; uvicorn main:app --reload --port 8000
+    # Linux / WSL (after usbipd)
+    BMS_SERIAL_PORT=/dev/ttyUSB0 uvicorn main:app --reload --port 8000
 """
 
 import asyncio
 import json
 import math
+import os
 import random
+import sys
+import threading
 import time
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+try:
+    import serial  # pyserial
+except ImportError:  # pragma: no cover
+    serial = None  # type: ignore
 
 app = FastAPI(title="THOR BMS API")
 
@@ -29,24 +60,44 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# BMS simulator — matches the JS shared-data.jsx behaviour
+# Config
 # ---------------------------------------------------------------------------
+DEFAULT_PORT = "COM4" if sys.platform.startswith("win") else "/dev/ttyUSB0"
+SERIAL_PORT = os.environ.get("BMS_SERIAL_PORT", DEFAULT_PORT)
+SERIAL_BAUD = int(os.environ.get("BMS_SERIAL_BAUD", "115200"))
+MODE = os.environ.get("BMS_MODE", "auto").lower()  # auto | sim | real
+
 HISTORY_SEC = 60
 HZ = 10
 N = HISTORY_SEC * HZ  # 600 samples
 
+# ---------------------------------------------------------------------------
+# Shared state (updated by either the serial reader thread or the simulator)
+# ---------------------------------------------------------------------------
 _V = [0.0] * N
 _I = [0.0] * N
 _SoC = [0.0] * N
 _T = [0.0] * N
 _P = [0.0] * N
 
-_soc = 67.4
-_v_nom = 3.74
-_i_nom = -1.8
-_temp = 28.4
+_soc = 67.4          # percent
+_v_nom = 3.74        # volts
+_i_nom = -1.8        # amperes
+_temp = 25.0         # °C (placeholder — BMS does not send this)
+_soc_real = 67.4     # percent, optional ground-truth from BMS
+_bms_uptime_ms = 0   # latest uptime reported by BMS
 _tick = 0
 
+_source = "sim"          # "sim" | "serial"
+_serial_connected = False
+_serial_err: str | None = None
+
+# ---------------------------------------------------------------------------
+# CAN frame log — synthetic, mirrors whatever current measurements are held.
+# (The real BMS doesn't send CAN frames over UART, but the dashboard shows
+# decoded frames; we synthesize them from the live values so the CAN view
+# reflects the real data instead of being empty.)
+# ---------------------------------------------------------------------------
 _can_log: list[dict[str, Any]] = []
 _CAN_MAX = 200
 
@@ -87,7 +138,10 @@ def _dbc_fields(idx: int) -> list[dict]:
     return [{"k": "Rate", "v": "10", "u": "Hz"}]
 
 
-# Pre-fill history
+# ---------------------------------------------------------------------------
+# Pre-fill 60 s of history with a plausible shape so the charts aren't empty
+# on first paint.
+# ---------------------------------------------------------------------------
 for _i in range(N):
     _ph = (_i / N) * math.pi * 2
     _iV = -1.8 + math.sin(_ph * 3) * 1.2 + math.sin(_ph * 7) * 0.3
@@ -95,13 +149,16 @@ for _i in range(N):
     _V[_i] = _vV
     _I[_i] = _iV
     _SoC[_i] = 68.0 - (_i / N) * 1.2
-    _T[_i] = 28 + math.sin(_ph * 2) * 1.5
+    _T[_i] = _temp
     _P[_i] = _vV * _iV
 
 
-def step() -> None:
-    global _soc, _v_nom, _i_nom, _temp, _tick
-    _tick += 1
+# ---------------------------------------------------------------------------
+# Simulator — used when the serial port isn't available
+# ---------------------------------------------------------------------------
+def _sim_step() -> None:
+    """Advance the simulated BMS state by one tick."""
+    global _v_nom, _i_nom, _soc, _temp
     ph = _tick / HZ
     _i_nom = (
         -1.8
@@ -114,7 +171,86 @@ def step() -> None:
     _v_nom = ocv + _i_nom * 0.022 + (random.random() - 0.5) * 0.004
     _temp += (28.5 + abs(_i_nom) * 0.3 - _temp) * 0.02 + (random.random() - 0.5) * 0.05
 
-    # Shift buffers
+
+# ---------------------------------------------------------------------------
+# Serial reader — runs in a background thread.
+#
+# Opens the port, reads lines, updates shared current values (_v_nom, _i_nom,
+# _soc). The 10 Hz ticker will sample these into the buffer. If the port
+# drops or can't be opened, sets _serial_connected = False and retries every
+# 2 seconds so a hot-plug works without restarting the backend.
+# ---------------------------------------------------------------------------
+def _parse_csv_line(line: str) -> bool:
+    """Parse one `CSV,...` line and update globals. Returns True on success."""
+    global _v_nom, _i_nom, _soc, _soc_real, _bms_uptime_ms
+    if not line or not line.startswith("CSV"):
+        return False
+    parts = line.split(",")
+    if len(parts) < 6 or parts[0] != "CSV":
+        return False
+    try:
+        _bms_uptime_ms = int(parts[1])
+        _v_nom = float(parts[2])
+        _i_nom = float(parts[3])
+        # SoC arrives as a fraction 0.0-1.0 — convert to percent for the UI
+        _soc = max(0.0, min(100.0, float(parts[4]) * 100.0))
+        _soc_real = max(0.0, min(100.0, float(parts[5]) * 100.0))
+        return True
+    except (ValueError, IndexError):
+        return False
+
+
+def _serial_loop() -> None:
+    """Blocking read loop. Runs in its own daemon thread."""
+    global _serial_connected, _serial_err, _source
+    if serial is None:
+        _serial_err = "pyserial is not installed"
+        print(f"[serial] {_serial_err} — running in simulator mode")
+        return
+
+    while True:
+        try:
+            print(f"[serial] opening {SERIAL_PORT} @ {SERIAL_BAUD}…")
+            with serial.Serial(
+                SERIAL_PORT, SERIAL_BAUD, timeout=1.0
+            ) as ser:
+                _serial_connected = True
+                _serial_err = None
+                _source = "serial"
+                print(f"[serial] connected on {SERIAL_PORT}")
+                while True:
+                    raw = ser.readline()
+                    if not raw:
+                        continue  # timeout, loop again
+                    try:
+                        line = raw.decode("utf-8", errors="ignore").strip()
+                    except Exception:
+                        continue
+                    _parse_csv_line(line)
+        except (OSError, serial.SerialException) as e:
+            _serial_connected = False
+            _serial_err = str(e)
+            _source = "sim"
+            print(f"[serial] error: {e} — retrying in 2 s")
+            time.sleep(2)
+        except Exception as e:
+            _serial_connected = False
+            _serial_err = f"unexpected: {e}"
+            _source = "sim"
+            print(f"[serial] unexpected error: {e}")
+            time.sleep(2)
+
+
+def _start_serial_thread() -> None:
+    t = threading.Thread(target=_serial_loop, name="bms-serial", daemon=True)
+    t.start()
+
+
+# ---------------------------------------------------------------------------
+# 10 Hz tick — advance buffers, emit synthetic CAN frames, broadcast.
+# ---------------------------------------------------------------------------
+def _advance() -> None:
+    """Shift 60 s buffers left by one and append the current sample."""
     for k in range(N - 1):
         _V[k] = _V[k + 1]
         _I[k] = _I[k + 1]
@@ -127,6 +263,19 @@ def step() -> None:
     _T[N - 1] = _temp
     _P[N - 1] = _v_nom * _i_nom
 
+
+def step() -> None:
+    """One 10 Hz tick: update values, shift buffers, emit CAN frames."""
+    global _tick
+    _tick += 1
+
+    if _source == "sim":
+        _sim_step()
+    # else: _v_nom / _i_nom / _soc already updated by the serial thread
+
+    _advance()
+
+    # Synthesize CAN frames from current values so the CAN bus view has data
     frame_idx = _tick % len(DBC)
     frame = DBC[frame_idx]
     _can_log.append(
@@ -165,12 +314,21 @@ def snapshot() -> dict:
             "T": round(_temp, 2),
             "P": round(_v_nom * _i_nom, 4),
         },
-        # Send last 600 samples as flat arrays (compact)
         "V": [round(x, 4) for x in _V],
         "I": [round(x, 4) for x in _I],
         "SoC": [round(x, 3) for x in _SoC],
         "T": [round(x, 3) for x in _T],
-        "canLog": _can_log[-50:],  # last 50 frames
+        "canLog": _can_log[-50:],
+        # Status telemetry (shown in the sidebar / status line)
+        "status": {
+            "source": _source,
+            "connected": _serial_connected,
+            "port": SERIAL_PORT,
+            "baud": SERIAL_BAUD,
+            "error": _serial_err,
+            "bms_uptime_ms": _bms_uptime_ms,
+            "soc_real": round(_soc_real, 2),
+        },
     }
 
 
@@ -185,10 +343,8 @@ async def ws_endpoint(websocket: WebSocket):
     await websocket.accept()
     _clients.add(websocket)
     try:
-        # Send current state immediately on connect
         await websocket.send_text(json.dumps(snapshot()))
         while True:
-            # Wait for the client to send anything (keep-alive ping) or just hold
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=0.5)
             except asyncio.TimeoutError:
@@ -217,6 +373,11 @@ async def _ticker():
 
 @app.on_event("startup")
 async def startup():
+    # Kick off the serial reader unless explicitly forced into sim mode.
+    if MODE != "sim":
+        _start_serial_thread()
+    else:
+        print("[bms] BMS_MODE=sim — not opening serial port")
     asyncio.create_task(_ticker())
 
 
@@ -227,4 +388,11 @@ def root():
         "ws": "ws://localhost:8000/ws",
         "hz": HZ,
         "history_sec": HISTORY_SEC,
+        "source": _source,
+        "serial": {
+            "port": SERIAL_PORT,
+            "baud": SERIAL_BAUD,
+            "connected": _serial_connected,
+            "error": _serial_err,
+        },
     }

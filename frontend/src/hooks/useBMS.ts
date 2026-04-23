@@ -193,6 +193,7 @@ export function useBMS(): BMSState {
             T: new Float32Array(data.T ?? []),
             P: new Float32Array(data.P ?? []),
             canLog: data.canLog ?? [],
+            status: data.status,
           });
         } catch {
           // malformed message — ignore

@@ -451,39 +451,53 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
           </div>
         )}
 
-        <div
-          style={{
-            padding: 12,
-            background: th.cardAlt,
-            borderRadius: 12,
-            border: `1px solid ${th.border}`,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 6,
-            }}
-          >
-            <span
+        {(() => {
+          const s = bms.status;
+          const live = s?.source === "serial" && s?.connected;
+          const dot = live ? th.soc : s?.source === "sim" ? th.t : "#ef4444";
+          const label = live
+            ? "UART live"
+            : s?.source === "sim"
+            ? "Simulated"
+            : "UART offline";
+          const port = s?.port ?? "—";
+          const baud = s?.baud ?? 115200;
+          return (
+            <div
               style={{
-                width: 7,
-                height: 7,
-                borderRadius: 99,
-                background: th.soc,
-                display: "inline-block",
+                padding: 12,
+                background: th.cardAlt,
+                borderRadius: 12,
+                border: `1px solid ${th.border}`,
               }}
-            />
-            <span style={{ fontSize: 12, fontWeight: 500 }}>UART live</span>
-          </div>
-          <div style={{ fontSize: 11, color: th.soft, lineHeight: 1.5 }}>
-            /dev/ttyUSB0
-            <br />
-            115200 · 10 Hz
-          </div>
-        </div>
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 99,
+                    background: dot,
+                    display: "inline-block",
+                  }}
+                />
+                <span style={{ fontSize: 12, fontWeight: 500 }}>{label}</span>
+              </div>
+              <div style={{ fontSize: 11, color: th.soft, lineHeight: 1.5 }}>
+                {port}
+                <br />
+                {baud} · 10 Hz
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Main content */}

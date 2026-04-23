@@ -21,6 +21,16 @@ export interface CANFrame {
   bytes: number[];
 }
 
+export interface BMSStatus {
+  source: "sim" | "serial";
+  connected: boolean;
+  port: string;
+  baud: number;
+  error: string | null;
+  bms_uptime_ms?: number;
+  soc_real?: number;
+}
+
 export interface BMSState {
   now: BMSSnapshot;
   V: Float32Array;
@@ -29,4 +39,5 @@ export interface BMSState {
   T: Float32Array;
   P: Float32Array;
   canLog: CANFrame[];
+  status?: BMSStatus;
 }
