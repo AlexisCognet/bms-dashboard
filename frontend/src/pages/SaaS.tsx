@@ -245,10 +245,7 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
 
         {[
           { name: "Overview", on: true, ic: "◉" },
-          { name: "Cells", ic: "▦" },
           { name: "CAN bus", ic: "↕" },
-          { name: "Events", ic: "◔" },
-          { name: "Settings", ic: "⚙" },
         ].map((n) => (
           <div
             key={n.name}
@@ -351,9 +348,6 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
             >
               Cell THOR-01
             </div>
-            <div style={{ fontSize: 13, color: th.mute, marginTop: 2 }}>
-              Live monitoring · updated just now
-            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <div
@@ -379,18 +373,6 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                 }}
               />
               Nominal
-            </div>
-            <div
-              style={{
-                padding: "7px 12px",
-                borderRadius: 8,
-                border: `1px solid ${th.border}`,
-                fontSize: 12,
-                color: th.mute,
-                fontWeight: 500,
-              }}
-            >
-              Last 60s ▾
             </div>
             <div
               style={{
