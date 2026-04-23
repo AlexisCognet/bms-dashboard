@@ -11,6 +11,7 @@ interface SparklineProps {
   max?: number;
   padY?: number;
   smooth?: boolean;
+  responsive?: boolean;
 }
 
 export function Sparkline({
@@ -26,6 +27,7 @@ export function Sparkline({
   max,
   padY = 4,
   smooth = true,
+  responsive = false,
 }: SparklineProps) {
   if (!data || data.length === 0) return null;
 
@@ -76,8 +78,16 @@ export function Sparkline({
   const areaD = d + ` L${width},${height} L0,${height} Z`;
   const baselineY = ys(0);
 
+  const svgProps = responsive
+    ? {
+        viewBox: `0 0 ${width} ${height}`,
+        preserveAspectRatio: "none" as const,
+        style: { display: "block", width: "100%", height } as React.CSSProperties,
+      }
+    : { width, height, style: { display: "block" } as React.CSSProperties };
+
   return (
-    <svg width={width} height={height} style={{ display: "block" }}>
+    <svg {...svgProps}>
       {gradientId && fill && (
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

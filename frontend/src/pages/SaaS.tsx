@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useBMS } from "../hooks/useBMS";
 import { Sparkline } from "../components/Sparkline";
 import type { CANFrame } from "../types/bms";
@@ -129,9 +130,7 @@ function StatCard({
           {icon}
         </div>
       </div>
-      <div
-        style={{ display: "flex", alignItems: "baseline", gap: 4 }}
-      >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
         <span
           style={{
             fontSize: 28,
@@ -154,8 +153,163 @@ function StatCard({
 }
 
 // ---------------------------------------------------------------------------
+// CAN messages list — reused on the CAN bus view
+// ---------------------------------------------------------------------------
+function CANList({
+  log,
+  rxCount,
+  txCount,
+  th,
+  title = "CAN messages",
+  subtitle,
+}: {
+  log: CANFrame[];
+  rxCount: number;
+  txCount: number;
+  th: Theme;
+  title?: string;
+  subtitle?: string;
+}) {
+  return (
+    <Card style={{ padding: "18px 20px" }} th={th}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 12,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
+          {subtitle && (
+            <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>
+              {subtitle}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
+          <span
+            style={{
+              padding: "3px 8px",
+              borderRadius: 99,
+              background: th.vSoft,
+              color: th.v,
+              fontWeight: 500,
+            }}
+          >
+            RX {rxCount}
+          </span>
+          <span
+            style={{
+              padding: "3px 8px",
+              borderRadius: 99,
+              background: th.iSoft,
+              color: th.i,
+              fontWeight: 500,
+            }}
+          >
+            TX {txCount}
+          </span>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {log.map((f: CANFrame, i: number) => {
+          const isTx = f.dir === "TX";
+          const col = isTx ? th.i : th.v;
+          const softCol = isTx ? th.iSoft : th.vSoft;
+          return (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 10px",
+                background: th.cardAlt,
+                borderRadius: 10,
+                border: `1px solid ${th.border}`,
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  textAlign: "center",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: 1,
+                  padding: "3px 0",
+                  borderRadius: 5,
+                  background: softCol,
+                  color: col,
+                  flexShrink: 0,
+                }}
+              >
+                {f.dir}
+              </div>
+              <div
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: th.text,
+                  minWidth: 58,
+                }}
+              >
+                0x{f.id.toString(16).toUpperCase().padStart(3, "0")}
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: th.text,
+                  minWidth: 160,
+                }}
+              >
+                {f.name}
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "2px 14px",
+                  fontSize: 12,
+                }}
+              >
+                {f.fields.map((fd, j) => (
+                  <span key={j} style={{ color: th.mute }}>
+                    {fd.k}{" "}
+                    <span style={{ color: th.text, fontWeight: 500 }}>
+                      {fd.v}
+                    </span>
+                    {fd.u && <span style={{ color: th.soft }}> {fd.u}</span>}
+                  </span>
+                ))}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: th.soft,
+                  fontFamily: MONO,
+                  flexShrink: 0,
+                }}
+              >
+                {i === 0 ? "now" : `${(i * 0.3).toFixed(1)}s`}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SaaS page
 // ---------------------------------------------------------------------------
+type View = "overview" | "canbus";
+
 interface SaaSProps {
   dark?: boolean;
   onToggleDark?: () => void;
@@ -164,9 +318,10 @@ interface SaaSProps {
 export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
   const bms = useBMS();
   const th = dark ? DARK_TH : LIGHT_TH;
+  const [view, setView] = useState<View>("overview");
 
   const { now, V, I, SoC, T, canLog } = bms;
-  const log = canLog.slice(-8).reverse();
+  const fullLog = canLog.slice().reverse();
 
   const vMin = Math.min(...(V as unknown as number[]));
   const vMax = Math.max(...(V as unknown as number[]));
@@ -186,6 +341,11 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
     }
     return { mn, mx, avg: s / arr.length };
   }
+
+  const navItems: { id: View; name: string; ic: string }[] = [
+    { id: "overview", name: "Overview", ic: "◉" },
+    { id: "canbus", name: "CAN bus", ic: "↕" },
+  ];
 
   return (
     <div
@@ -243,33 +403,33 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
           </div>
         </div>
 
-        {[
-          { name: "Overview", on: true, ic: "◉" },
-          { name: "CAN bus", ic: "↕" },
-        ].map((n) => (
-          <div
-            key={n.name}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              background: n.on ? th.brandSoft : "transparent",
-              color: n.on ? th.brand : th.mute,
-              fontSize: 13,
-              fontWeight: n.on ? 500 : 400,
-              cursor: "pointer",
-            }}
-          >
-            <span style={{ width: 16 }}>{n.ic}</span>
-            {n.name}
-          </div>
-        ))}
+        {navItems.map((n) => {
+          const on = n.id === view;
+          return (
+            <div
+              key={n.id}
+              onClick={() => setView(n.id)}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 8,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: on ? th.brandSoft : "transparent",
+                color: on ? th.brand : th.mute,
+                fontSize: 13,
+                fontWeight: on ? 500 : 400,
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ width: 16 }}>{n.ic}</span>
+              {n.name}
+            </div>
+          );
+        })}
 
         <div style={{ flex: 1 }} />
 
-        {/* Theme toggle */}
         {onToggleDark && (
           <div
             style={{
@@ -346,7 +506,7 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
                 letterSpacing: -0.5,
               }}
             >
-              Cell THOR-01
+              {view === "overview" ? "Cell THOR-01" : "CAN bus"}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -390,535 +550,392 @@ export function SaaS({ dark = false, onToggleDark }: SaaSProps) {
           </div>
         </div>
 
-        {/* Stat cards */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 12,
-            marginBottom: 16,
-          }}
-        >
-          <StatCard
-            label="Voltage"
-            value={now.V.toFixed(3)}
-            unit="V"
-            color={th.v}
-            softBg={th.vSoft}
-            delta={`min ${vMin.toFixed(2)} · max ${vMax.toFixed(2)}`}
-            icon="V"
-            th={th}
-          />
-          <StatCard
-            label="Current"
-            value={(now.I >= 0 ? "+" : "") + now.I.toFixed(2)}
-            unit="A"
-            color={th.i}
-            softBg={th.iSoft}
-            delta={
-              now.I < -0.1
-                ? "Discharging"
-                : now.I > 0.1
-                ? "Charging"
-                : "Idle"
-            }
-            icon="I"
-            th={th}
-          />
-          <StatCard
-            label="State of charge"
-            value={now.SoC.toFixed(1)}
-            unit="%"
-            color={th.soc}
-            softBg={th.socSoft}
-            delta="EKF · SoH 98.2%"
-            icon="%"
-            th={th}
-          />
-          <StatCard
-            label="Temperature"
-            value={now.T.toFixed(1)}
-            unit="°C"
-            color={th.t}
-            softBg="rgba(244,183,64,.12)"
-            delta={`avg ${tAvg.toFixed(1)} °C`}
-            icon="°"
-            th={th}
-          />
-        </div>
-
-        {/* Charts */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-            marginBottom: 16,
-          }}
-        >
-          {/* V & I */}
-          <Card style={{ padding: "18px 20px" }} th={th}>
+        {view === "overview" && (
+          <>
+            {/* Stat cards */}
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                marginBottom: 14,
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: 12,
+                marginBottom: 16,
               }}
             >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  Voltage &amp; current
-                </div>
-                <div
-                  style={{ fontSize: 12, color: th.mute, marginTop: 2 }}
-                >
-                  Rolling 60-second window
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 12, fontSize: 12 }}>
-                <span
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    color: th.mute,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 2,
-                      background: th.v,
-                      display: "inline-block",
-                    }}
-                  />
-                  Voltage
-                </span>
-                <span
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    color: th.mute,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 2,
-                      background: th.i,
-                      display: "inline-block",
-                    }}
-                  />
-                  Current
-                </span>
-              </div>
-            </div>
-            <div style={{ position: "relative" }}>
-              <Sparkline
-                data={V}
-                width={420}
-                height={150}
-                stroke={th.v}
-                fill={th.v}
-                gradientId="saasV"
-                strokeWidth={2}
+              <StatCard
+                label="Voltage"
+                value={now.V.toFixed(3)}
+                unit="V"
+                color={th.v}
+                softBg={th.vSoft}
+                delta={`min ${vMin.toFixed(2)} · max ${vMax.toFixed(2)}`}
+                icon="V"
+                th={th}
               />
-              <div style={{ position: "absolute", inset: 0 }}>
-                <Sparkline
-                  data={I}
-                  width={420}
-                  height={150}
-                  stroke={th.i}
-                  strokeWidth={2}
-                  baselineZero
-                />
-              </div>
+              <StatCard
+                label="Current"
+                value={(now.I >= 0 ? "+" : "") + now.I.toFixed(2)}
+                unit="A"
+                color={th.i}
+                softBg={th.iSoft}
+                delta={
+                  now.I < -0.1
+                    ? "Discharging"
+                    : now.I > 0.1
+                    ? "Charging"
+                    : "Idle"
+                }
+                icon="I"
+                th={th}
+              />
+              <StatCard
+                label="State of charge"
+                value={now.SoC.toFixed(1)}
+                unit="%"
+                color={th.soc}
+                softBg={th.socSoft}
+                delta="EKF · SoH 98.2%"
+                icon="%"
+                th={th}
+              />
+              <StatCard
+                label="Temperature"
+                value={now.T.toFixed(1)}
+                unit="°C"
+                color={th.t}
+                softBg="rgba(244,183,64,.12)"
+                delta={`avg ${tAvg.toFixed(1)} °C`}
+                icon="°"
+                th={th}
+              />
             </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: 11,
-                color: th.soft,
-                marginTop: 6,
-              }}
-            >
-              <span>-60s</span>
-              <span>-40s</span>
-              <span>-20s</span>
-              <span>now</span>
-            </div>
-          </Card>
 
-          {/* SoC */}
-          <Card style={{ padding: "18px 20px" }} th={th}>
+            {/* Charts — bigger now that lower row is compressed */}
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                marginBottom: 14,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+                marginBottom: 16,
               }}
             >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  State of charge
-                </div>
+              {/* V & I */}
+              <Card style={{ padding: "18px 20px" }} th={th}>
                 <div
-                  style={{ fontSize: 12, color: th.mute, marginTop: 2 }}
-                >
-                  Extended Kalman filter estimate
-                </div>
-              </div>
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 600,
-                  fontFamily: DISP,
-                  letterSpacing: -0.8,
-                  color: th.soc,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {now.SoC.toFixed(1)}
-                <span
-                  style={{ fontSize: 14, color: th.mute, marginLeft: 2 }}
-                >
-                  %
-                </span>
-              </div>
-            </div>
-            <Sparkline
-              data={SoC}
-              width={420}
-              height={150}
-              stroke={th.soc}
-              fill={th.soc}
-              gradientId="saasS"
-              strokeWidth={2}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: 11,
-                color: th.soft,
-                marginTop: 6,
-              }}
-            >
-              <span>-60s</span>
-              <span>-40s</span>
-              <span>-20s</span>
-              <span>now</span>
-            </div>
-          </Card>
-        </div>
-
-        {/* Lower row */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1.4fr 1fr",
-            gap: 12,
-          }}
-        >
-          {/* CAN messages */}
-          <Card style={{ padding: "18px 20px" }} th={th}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  CAN messages
-                </div>
-                <div
-                  style={{ fontSize: 12, color: th.mute, marginTop: 2 }}
-                >
-                  Decoded per DBC · last 8 frames
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
-                <span
                   style={{
-                    padding: "3px 8px",
-                    borderRadius: 99,
-                    background: th.vSoft,
-                    color: th.v,
-                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    marginBottom: 14,
                   }}
                 >
-                  RX {rxCount}
-                </span>
-                <span
-                  style={{
-                    padding: "3px 8px",
-                    borderRadius: 99,
-                    background: th.iSoft,
-                    color: th.i,
-                    fontWeight: 500,
-                  }}
-                >
-                  TX {txCount}
-                </span>
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
-              {log.map((f: CANFrame, i: number) => {
-                const isTx = f.dir === "TX";
-                const col = isTx ? th.i : th.v;
-                const softCol = isTx ? th.iSoft : th.vSoft;
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 10px",
-                      background: th.cardAlt,
-                      borderRadius: 10,
-                      border: `1px solid ${th.border}`,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 36,
-                        textAlign: "center",
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: 1,
-                        padding: "3px 0",
-                        borderRadius: 5,
-                        background: softCol,
-                        color: col,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {f.dir}
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>
+                      Voltage &amp; current
                     </div>
-                    <div
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: th.text,
-                        minWidth: 58,
-                      }}
-                    >
-                      0x
-                      {f.id.toString(16).toUpperCase().padStart(3, "0")}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: th.text,
-                        minWidth: 130,
-                      }}
-                    >
-                      {f.name}
-                    </div>
-                    <div
-                      style={{
-                        flex: 1,
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "2px 14px",
-                        fontSize: 12,
-                      }}
-                    >
-                      {f.fields.slice(0, 3).map((fd, j) => (
-                        <span key={j} style={{ color: th.mute }}>
-                          {fd.k}{" "}
-                          <span
-                            style={{
-                              color: th.text,
-                              fontWeight: 500,
-                            }}
-                          >
-                            {fd.v}
-                          </span>
-                          {fd.u && (
-                            <span style={{ color: th.soft }}> {fd.u}</span>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: th.soft,
-                        fontFamily: MONO,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {i === 0 ? "now" : `${(i * 0.3).toFixed(1)}s`}
+                    <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>
+                      Rolling 60-second window
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-
-          {/* Stats + faults */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Card style={{ padding: "18px 20px" }} th={th}>
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  marginBottom: 12,
-                }}
-              >
-                Session statistics
-              </div>
-              {[
-                { k: "Voltage", unit: "V", arr: V, col: th.v },
-                { k: "Current", unit: "A", arr: I, col: th.i },
-                { k: "Temperature", unit: "°C", arr: T, col: th.t },
-              ].map((r, idx) => {
-                const st = sessionStat(r.arr);
-                return (
-                  <div
-                    key={r.k}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "90px repeat(3, 1fr)",
-                      gap: 8,
-                      fontSize: 12,
-                      padding: "8px 0",
-                      borderTop:
-                        idx > 0 ? `1px solid ${th.border}` : "none",
-                    }}
-                  >
-                    <div
+                  <div style={{ display: "flex", gap: 12, fontSize: 12 }}>
+                    <span
                       style={{
-                        color: th.mute,
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
+                        color: th.mute,
                       }}
                     >
                       <span
                         style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: 99,
-                          background: r.col,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 2,
+                          background: th.v,
                           display: "inline-block",
-                          flexShrink: 0,
                         }}
                       />
-                      {r.k}
-                    </div>
-                    <div>
-                      <div style={{ color: th.soft, fontSize: 10 }}>min</div>
-                      <div
+                      Voltage
+                    </span>
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        color: th.mute,
+                      }}
+                    >
+                      <span
                         style={{
-                          fontWeight: 500,
-                          fontVariantNumeric: "tabular-nums",
+                          width: 8,
+                          height: 8,
+                          borderRadius: 2,
+                          background: th.i,
+                          display: "inline-block",
                         }}
-                      >
-                        {st.mn.toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ color: th.soft, fontSize: 10 }}>avg</div>
-                      <div
-                        style={{
-                          fontWeight: 500,
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {st.avg.toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ color: th.soft, fontSize: 10 }}>max</div>
-                      <div
-                        style={{
-                          fontWeight: 500,
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {st.mx.toFixed(2)}
-                      </div>
-                    </div>
+                      />
+                      Current
+                    </span>
                   </div>
-                );
-              })}
-            </Card>
-
-            <Card style={{ padding: "18px 20px" }} th={th}>
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  marginBottom: 12,
-                }}
-              >
-                Faults
-              </div>
-              {[
-                { k: "Over-voltage", on: false, lim: "4.20 V" },
-                { k: "Under-voltage", on: false, lim: "2.80 V" },
-                { k: "Over-temp", on: now.T > 45, lim: "45 °C" },
-                { k: "Over-current", on: Math.abs(now.I) > 10, lim: "10 A" },
-              ].map((a, idx) => (
+                </div>
+                <div style={{ position: "relative", height: 260 }}>
+                  <Sparkline
+                    data={V}
+                    width={600}
+                    height={260}
+                    stroke={th.v}
+                    fill={th.v}
+                    gradientId="saasV"
+                    strokeWidth={2}
+                    responsive
+                  />
+                  <div style={{ position: "absolute", inset: 0 }}>
+                    <Sparkline
+                      data={I}
+                      width={600}
+                      height={260}
+                      stroke={th.i}
+                      strokeWidth={2}
+                      baselineZero
+                      responsive
+                    />
+                  </div>
+                </div>
                 <div
-                  key={a.k}
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "8px 0",
-                    borderTop:
-                      idx > 0 ? `1px solid ${th.border}` : "none",
-                    fontSize: 12,
+                    fontSize: 11,
+                    color: th.soft,
+                    marginTop: 6,
                   }}
                 >
+                  <span>-60s</span>
+                  <span>-40s</span>
+                  <span>-20s</span>
+                  <span>now</span>
+                </div>
+              </Card>
+
+              {/* SoC */}
+              <Card style={{ padding: "18px 20px" }} th={th}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>
+                      State of charge
+                    </div>
+                    <div style={{ fontSize: 12, color: th.mute, marginTop: 2 }}>
+                      Extended Kalman filter estimate
+                    </div>
+                  </div>
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
+                      fontSize: 28,
+                      fontWeight: 600,
+                      fontFamily: DISP,
+                      letterSpacing: -0.8,
+                      color: th.soc,
+                      fontVariantNumeric: "tabular-nums",
                     }}
                   >
+                    {now.SoC.toFixed(1)}
                     <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: 99,
-                        background: a.on ? "#ef4444" : th.soc,
-                        display: "inline-block",
-                      }}
-                    />
-                    <span>{a.k}</span>
-                  </div>
-                  <div style={{ color: th.mute, fontSize: 11 }}>
-                    ≤ {a.lim}
+                      style={{ fontSize: 14, color: th.mute, marginLeft: 2 }}
+                    >
+                      %
+                    </span>
                   </div>
                 </div>
-              ))}
-            </Card>
-          </div>
-        </div>
+                <div style={{ height: 260 }}>
+                  <Sparkline
+                    data={SoC}
+                    width={600}
+                    height={260}
+                    stroke={th.soc}
+                    fill={th.soc}
+                    gradientId="saasS"
+                    strokeWidth={2}
+                    responsive
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 11,
+                    color: th.soft,
+                    marginTop: 6,
+                  }}
+                >
+                  <span>-60s</span>
+                  <span>-40s</span>
+                  <span>-20s</span>
+                  <span>now</span>
+                </div>
+              </Card>
+            </div>
+
+            {/* Stats + Faults side-by-side */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+              }}
+            >
+              <Card style={{ padding: "18px 20px" }} th={th}>
+                <div
+                  style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}
+                >
+                  Session statistics
+                </div>
+                {[
+                  { k: "Voltage", unit: "V", arr: V, col: th.v },
+                  { k: "Current", unit: "A", arr: I, col: th.i },
+                  { k: "Temperature", unit: "°C", arr: T, col: th.t },
+                ].map((r, idx) => {
+                  const st = sessionStat(r.arr);
+                  return (
+                    <div
+                      key={r.k}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "100px repeat(3, 1fr)",
+                        gap: 8,
+                        fontSize: 12,
+                        padding: "8px 0",
+                        borderTop:
+                          idx > 0 ? `1px solid ${th.border}` : "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: th.mute,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 99,
+                            background: r.col,
+                            display: "inline-block",
+                            flexShrink: 0,
+                          }}
+                        />
+                        {r.k}
+                      </div>
+                      <div>
+                        <div style={{ color: th.soft, fontSize: 10 }}>min</div>
+                        <div
+                          style={{
+                            fontWeight: 500,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {st.mn.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: th.soft, fontSize: 10 }}>avg</div>
+                        <div
+                          style={{
+                            fontWeight: 500,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {st.avg.toFixed(2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: th.soft, fontSize: 10 }}>max</div>
+                        <div
+                          style={{
+                            fontWeight: 500,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {st.mx.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+
+              <Card style={{ padding: "18px 20px" }} th={th}>
+                <div
+                  style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}
+                >
+                  Faults
+                </div>
+                {[
+                  { k: "Over-voltage", on: false, lim: "4.20 V" },
+                  { k: "Under-voltage", on: false, lim: "2.80 V" },
+                  { k: "Over-temp", on: now.T > 45, lim: "45 °C" },
+                  { k: "Over-current", on: Math.abs(now.I) > 10, lim: "10 A" },
+                ].map((a, idx) => (
+                  <div
+                    key={a.k}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "8px 0",
+                      borderTop:
+                        idx > 0 ? `1px solid ${th.border}` : "none",
+                      fontSize: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: 99,
+                          background: a.on ? "#ef4444" : th.soc,
+                          display: "inline-block",
+                        }}
+                      />
+                      <span>{a.k}</span>
+                    </div>
+                    <div style={{ color: th.mute, fontSize: 11 }}>
+                      ≤ {a.lim}
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          </>
+        )}
+
+        {view === "canbus" && (
+          <CANList
+            log={fullLog}
+            rxCount={rxCount}
+            txCount={txCount}
+            th={th}
+            title="CAN messages"
+            subtitle={`Decoded per DBC · ${fullLog.length} frames buffered`}
+          />
+        )}
       </div>
     </div>
   );
 }
+
